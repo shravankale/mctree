@@ -11,9 +11,26 @@ import subprocess
 
 import mctree.tool.invoke as invoke
 from mctree.tool.support import *
+import mctree.tool.ytopt_parameter_counter as ypc
+
+"""
+Structure:
+Experiment{
+	Nestexperiments=[LoopNestExperiments{
+		LoopNest=[Loops{
+			subLoops=[Loops{}, ...]
+		}
+        , ...]
+	}
+	, …]
+}
+
+"""
+
 
 
 def mcount(seq):
+    #Counts the children yielded by the seq generator
     result = 0
     for count, _ in seq:
         result += count
@@ -21,6 +38,7 @@ def mcount(seq):
 
 
 def mselect(seq, idx: int):
+    #Selector in which the selector idx lopos back to the start if > len(seq)
     pos = idx
     for count, elt in seq:
         assert count >= 0
@@ -31,6 +49,7 @@ def mselect(seq, idx: int):
 
 
 def mcall(seq, loopcounter, idx: int):
+    #Calls the function yielded by the generator
     pos, elt = mselect(seq, idx)
     return elt(loopcounter, pos)
 
@@ -107,12 +126,14 @@ class Loop:
             yield subloop.get_num_children(), make_replace_loop_closure(i, subloop)
 
     def get_num_children(self):
-        return mcount(self.selector())
+        res = mcount(self.selector())
+        return res
 
     def get_child(self, loopcounter, idx: int):
         return mcall(self.selector(), loopcounter, idx)
 
     def perfectnest(self):
+        "Returns a perfectnest if any appended to self or simply returns self"
         assert self.transformable
         assert not self.isroot
 
@@ -224,6 +245,7 @@ def json_to_loops(topmost, loopcounter):
             loop.column = tm["column"]
             loop.function = tm["function"]
             sublooproot = json_to_loops(tm["children"], loopcounter)
+            #Adds a loop from the recursive call as a subloop to the loop
             loop.subloops = sublooproot.subloops
             result.add_subloop(loop)
         elif kind == 'stmt':
@@ -237,15 +259,40 @@ def json_to_loops(topmost, loopcounter):
             assert False, "unknown kind"
     return result
 
+class ParameterCounter:
+    def __init__(self):
+        self.prevparamid = 0
+
+    def getCurrentParameterId(self):
+        return self.prevparamid
+
+    def clone(self):
+        result = ParameterCounter()
+        result.prevparamid=self.prevparamid
+        return result
+    
+    def nextParamID(self):
+        self.prevparamid +=1
+        return self.prevparamid
+
+paramcounter = ParameterCounter()
 
 class LoopCounter:
     def __init__(self):
         self.prevloopid = 0
         self.prevparamid = 0
+    
+    def getCurrentParamID(self):
+        return self.prevparamid
+    
+    def setCurrentParamID(self,paramid):
+        self.prevparamid=paramid
+        return
 
     def clone(self):
         result = LoopCounter()
         result.prevloopid = self.prevloopid
+        result.prevparamid = self.prevparamid
         return result
 
     def nextId(self):
@@ -329,13 +376,15 @@ class Experiment:
                 newnestexp = nestexperiment.get_child(idx)
                 result = Experiment()
                 result.derived_from = self
+                #x-updating the experiment depth
+                result.depth=self.depth+1
                 result.nestexperiments = self.nestexperiments.copy()
                 result.nestexperiments[i] = newnestexp
 
                 self.derivatives[idx] = result
                 return result
             return make_child
-
+        # X- Should this be for i, loopnestexperiment
         for i, nestexperiment in enumerate(self.nestexperiments):          
             yield nestexperiment.get_num_children(), make_make_child_closure(i,nestexperiment)
 
@@ -350,18 +399,21 @@ class Experiment:
             yield self.get_child(idx)
 
     def derivatives_recursive(self, max_depth=None, filter=None, descendfilter=None):
+        
         if filter and not filter(self):
             return
+        
         yield self
-
         if max_depth != None and max_depth == 0:
             return
+        
+        
         if descendfilter and not descendfilter(self):
             return
 
         for n in self.children():
             yield from n.derivatives_recursive(max_depth=max_depth-1 if max_depth != None else None,filter=filter,descendfilter=descendfilter)
-
+    
     def __str__(self):
         return '\n'.join(self.to_lines())
 
@@ -419,9 +471,13 @@ class TilingParametric:
     def apply_transform(self,loopnest,loopcounter,d):
         assert d >= 1
 
-        paramid = loopcounter.nextParamId();
-        param_peel = ChoicesParam(f"p_tile{paramid}_peel", choices=["", "peel(rectangular)"])
-        params_tilesizes = list(ChoicesParam(f"p_tile{paramid}_depth{d}",self.tilesizes) for d in range(0,d))
+        #paramid = loopcounter.nextParamId()
+        ##paramid = ypc.p
+        ##ypc.p+=1
+        #param_peel = ChoicesParam(f"p_tile{paramid}_peel", choices=["", "peel(rectangular)"])
+        param_peel = ChoicesParam(f"P{ypc.p.nextParamID()}", choices=["","peel(rectangular)"])
+        #params_tilesizes = list(ChoicesParam(f"p_tile{paramid}_depth{d}",self.tilesizes) for d in range(0,d))
+        params_tilesizes = list(ChoicesParam(f"P{ypc.p.nextParamID()}",self.tilesizes) for d in range(0,d))
         params = [param_peel] + params_tilesizes
 
         origloops = loopnest[:d]
@@ -478,6 +534,7 @@ class Tiling:
         assert d >= 1
         origloops = loopnest[:d]
         keeploops = loopnest[d:]
+        #X- Check if other parameters such as line/column # are included in newly created loops
         floors = list([Loop.createLoop(name=f'floor{loopcounter.nextId()}') for i in range(0, d)])
         tiles = list([Loop.createLoop(name=f'tile{loopcounter.nextId()}') for i in range(0, d)])
         newloops = floors + tiles
@@ -543,6 +600,82 @@ class Threading:
         return [parallel_loop], [pragma], []
 
 
+class Interchange2:
+    @staticmethod
+    def get_factory():
+        def factory(loop: Loop):
+            if loop.isloop and loop.transformable:
+                return Interchange2(loop)
+            return None
+        return factory
+
+    def __init__(self, loop: Loop):
+        self.loop = loop
+        self.num_children = mcount(self.selector())
+
+    def selector(self):
+        loopnest = self.loop.perfectnest()
+        n = len(loopnest)
+
+        # If there is nothing to permute
+        if n <= 1:
+            return
+
+        def make_make_child_closure(d):
+            def make_child(loopcounter, idx: int):
+                orignest = loopnest.copy()
+                remaining = loopnest.copy()
+                perm = []
+
+                i = idx
+
+                # New topmost loop cannot be the old topmost
+                # Otherwise it should be an interchange of the nested loop; this also excludes the identity permutation
+                select = i % (len(remaining) - 1) + 1
+                i //= (len(remaining) - 1)
+                perm.append(remaining[select])
+                del remaining[select]
+
+                while remaining:
+                    select = i % len(remaining)
+                    i //= len(remaining)
+                    perm.append(remaining[select])
+                    del remaining[select]
+
+                assert i == 0
+                assert len(perm) == n
+                assert len(remaining) == 0
+
+                # Strip trailing unchanged loops
+                while perm[-1] == orignest[-1]:
+                    del perm[-1]
+                    del orignest[-1]
+
+                newperm = [Loop.createLoop(name=f'perm{loopcounter.nextId()}') for l in perm]
+                for p, c in neighbors(newperm):
+                    p.subloops = [c]
+                ##X- Adding the trailing unchanged loops back to the newperm loopnest
+                newperm[-1].subloops = orignest[-1].subloops
+
+                nestids = [p.name for p in orignest]
+                permids = [p.name for p in perm]
+                newpermids = [p.name for p in newperm]
+                pragma = f"#pragma clang loop({','.join(nestids)}) interchange permutation({','.join(permids)}) permuted_ids({','.join(newpermids)})"
+                return [newperm[0]], [pragma], []
+            return make_child
+
+        num_children = (n-1)
+        for i in range(1, n-1):
+            num_children *= i
+        for d in range(1, n+1):
+            yield num_children, make_make_child_closure(d)
+
+    def get_num_children(self):
+        return self.num_children
+
+    def get_child(self, loopcounter, idx: int):
+        return mcall(self.selector(), loopcounter, idx)
+
 class Interchange:
     @staticmethod
     def get_factory():
@@ -597,6 +730,7 @@ class Interchange:
                 newperm = [Loop.createLoop(name=f'perm{loopcounter.nextId()}') for l in perm]
                 for p, c in neighbors(newperm):
                     p.subloops = [c]
+                ##X- Adding the trailing unchanged loops back to the newperm loopnest
                 newperm[-1].subloops = orignest[-1].subloops
 
                 nestids = [p.name for p in orignest]
@@ -606,18 +740,19 @@ class Interchange:
                 return [newperm[0]], [pragma], []
             return make_child
 
+        
         num_children = (n-1)
-        for i in range(1, n-1):
-            num_children *= i
-        for d in range(1, n+1):
-            yield num_children, make_make_child_closure(d)
+        #for i in range(1, n-1):
+            #num_children *= i
+        #for d in range(1, n-1):
+            #yield 1, make_make_child_closure(d)
+        yield 1, make_make_child_closure(1)
 
     def get_num_children(self):
         return self.num_children
 
     def get_child(self, loopcounter, idx: int):
         return mcall(self.selector(), loopcounter, idx)
-
 
 class Reversal:
     @staticmethod
@@ -645,10 +780,10 @@ class Reversal:
 
 class UnrollingFull:
     @staticmethod
-    def get_factory(factors):
+    def get_factory():
         def factory(loop: Loop):
             if loop.isloop and loop.transformable:
-                return UnrollingFull(loop,factors)
+                return UnrollingFull(loop)
             return None
         return factory
 
@@ -664,7 +799,8 @@ class UnrollingFull:
             unrolled_loop = Loop.createAnonLoop()
             unrolled_loop.subloops = loop.subloops
             pragma = f"#pragma clang loop({self.loop.name}) unrolling full"
-            return [unrolled_loop], [pragma]
+            #return [unrolled_loop], [pragma]
+            return [unrolled_loop], [pragma], []
 
         yield 1, make_full_unrolling
  
@@ -682,7 +818,7 @@ class UnrollingParametric:
     def get_factory(factors):
         def factory(loop: Loop):
             if loop.isloop and loop.transformable:
-                return Unrolling(loop,factors)
+                return UnrollingParametric(loop,factors)
             return None
         return factory
 
@@ -697,12 +833,15 @@ class UnrollingParametric:
         def make_partial_unrolling(loopcounter, idx: int):
             assert idx == 0
 
-            paramid = loopcounter.nextParamId();
-            param_factor = ChoicesParam(f"p_unroll{paramid}_factor", choices=self.factors)
+            #paramid = loopcounter.nextParamId()
+            #paramid = paramcounter.nextParamID()
+            #paramid = ypc.p
+            #ypc.p+=1
+            param_factor = ChoicesParam(f"P{ypc.p.nextParamID()}", choices=self.factors)
             
             unrolled_loop = Loop.createLoop(name=f'unroll{loopcounter.nextId()}')
             unrolled_loop.subloops = loop.subloops
-            pragma = f"#pragma clang loop({self.loop.name}) unrolling factor(#{param_factor.name})"
+            pragma = f"#pragma clang loop({self.loop.name}) unrolling factor(#{param_factor.name}) unrolled_id({unrolled_loop.name})"
             return [unrolled_loop], [pragma], [param_factor]                
 
         yield 1, make_partial_unrolling
@@ -754,7 +893,7 @@ class UnrollingAndJamParametric:
     def get_factory(factors):
         def factory(loop: Loop):
             if loop.isloop and loop.transformable:
-                return UnrollingAndJam(loop,factors)
+                return UnrollingAndJamParametric(loop,factors)
             return None
         return factory
 
@@ -791,7 +930,9 @@ class UnrollingAndJamParametric:
                     jam = Loop.createLoop(name=f'jam{loopcounter.nextId()}')
                     jam.subloops =  [s for s in sub.subloops]
                     for subloop in jam.subloops:
-                        subloops.transformable = False
+                        #X- check subloop
+                        #subloops.transformable = False
+                        subloop.transformable = False
                     new_subloops.append(jam)
                 else:
                     streak.append(sub)
@@ -799,17 +940,19 @@ class UnrollingAndJamParametric:
             return new_subloops
                  
         def make_partial_unrollingandjam(loopcounter, idx: int):
-            assert idx==1
+            #assert idx==1
+            assert idx==0
 
-            paramid = loopcounter.nextParamId();
-            param_factor = ChoicesParam(f"p_unrollandjam{paramid}_factor", choices=self.factors)
+            #paramid = loopcounter.nextParamId()
+            #param_factor = ChoicesParam(f"p_unrollandjam{paramid}_factor", choices=self.factors)
+            param_factor = ChoicesParam(f"P{ypc.p.nextParamID()}", choices=self.factors)
 
             new_subloops = jam_content(loopcounter,loop.subloops)
 
             unrolled_loop = Loop.createLoop(name=f'unroll{loopcounter.nextId()}')
             unrolled_loop.subloops = new_subloops
-            pragma = f"#pragma clang loop({self.loop.name}) unrollingandjam factor(#{param_factor.name})"
-            return [unrolled_loop], [pragma], []                
+            pragma = f"#pragma clang loop({self.loop.name}, {self.loop.subloops[0].name}) unrollingandjam factor(#{param_factor.name} unrolled_ids({unrolled_loop.name}, {new_subloops[0].name})"
+            return [unrolled_loop], [pragma], [param_factor]                
 
         yield 1,make_partial_unrollingandjam
 
@@ -839,7 +982,7 @@ class UnrollingAndJam:
         loop = self.loop
 
         # Require exactly one subloop
-        # TODO: jam depth, currently not supported by pragma-clang-loop
+        # TODO: jam depth, currently not supported by pragma-clang-loop; Pragma generation in make_partial_unrollingandjam() assumes self.loop.subloops[0] == 1
         if len(loop.subloops) != 1:
             return
         subloop = loop.subloops[0]
@@ -884,7 +1027,7 @@ class UnrollingAndJam:
 
             unrolled_loop = Loop.createLoop(name=f'unroll{loopcounter.nextId()}')
             unrolled_loop.subloops = new_subloops
-            pragma = f"#pragma clang loop({self.loop.name}) unrollingandjam factor({factor})"
+            pragma = f"#pragma clang loop({self.loop.name}, {self.loop.subloops[0].name}) unrollingandjam factor({factor}) unrolled_ids({unrolled_loop.name}, {new_subloops[0].name})"
             return [unrolled_loop], [pragma], []                
 
         if False:
@@ -921,7 +1064,7 @@ class ArrayPacking:
             packed_loop = Loop.createAnonLoop()
             packed_loop.subloops = self.loop.subloops
             pragma = f"#pragma clang loop({self.loop.name}) pack array({self.arrays[idx]})"
-            return [packed_loop], [pragma]         
+            return [packed_loop], [pragma], []         
 
         yield len(self.arrays), make_array_packing
 
@@ -959,7 +1102,7 @@ class Fission:
             tail_loop = Loop.createLoop(name=f"tail{loopcounter.nextId()}")
             tail_loop.subloops = loop.subloops[split_at:]
             pragma = f"#pragma clang loop({loop.name}) fission split_at({idx})"
-            return [head_loop,tail_loop], [pragma]
+            return [head_loop,tail_loop], [pragma], []
 
         yield subcount-1,make_fission
 
@@ -1025,7 +1168,7 @@ class Fusion:
 
             # Loop fusion is special as we transform the parent, but add the pragma applies to the children while the parent keeps its name. The parent also does not need to be 'transformable'
             pragma = f"#pragma clang loop({fuse_loops[0].name},{fuse_loops[1].name}) fuse fused_id({fused_loop.name})"
-            return [parent_loop], [pragma]
+            return [parent_loop], [pragma], []
 
         yield fusablecount,make_fusion
 
@@ -1052,8 +1195,8 @@ def as_dot(baseexperiment: Experiment, max_depth=None, filter=None, decendfilter
             fillcolor = 'darkseagreen1:lawngreen'
         else:
             fillcolor = 'azure:powderblue'
-
-        yield f'  n{id(experiment)}[shape=box color="grey30" penwidth=2 fillcolor="{fillcolor}" style="filled,rounded" gradientangle=315 fontname="Calibri Light" label="{desc}"];'
+        #X- Added experiment.depth to dot file
+        yield f'  n{id(experiment)}[shape=box color="grey30" penwidth=2 fillcolor="{fillcolor}" style="filled,rounded" gradientangle=315 fontname="Calibri Light" label="{experiment.depth}:{desc}"];'
 
         if parent := experiment.derived_from:
             yield f'  n{id(parent)} -> n{id(experiment)};'
@@ -1087,7 +1230,7 @@ def add_boolean_argument(parser, name, default=False, dest=None, help=None):
     parser.set_defaults(**defaults)
 
 
-
+loopcounter = None
 def read_json(files):
     root = Experiment()
     for fn in files:
@@ -1152,20 +1295,25 @@ def run_exec(experiment,cwd,exefile,execopts):
     experiment.exppath = cwd
 
 
-
-def extract_loopnests(tempdir, ccargs, execopts):
+def extract_loopnests(tempdir, ccargs, execopts, only_polly_dump_loopnest=False):
     print("Extract loop nests...")
 
     extractloopnest = tempdir / 'base'
     extractloopnest.mkdir(parents=True, exist_ok=True)
     exefile = extractloopnest / ccargs.o.name
 
+    #Writing Loopnest to kernel-loopnest.json
     cmdline = make_ccline(ccargs, outfile=exefile, 
         extraflags=['-mllvm', '-polly-dump-loopnest'], debuginfo=True)
     invoke.diag(*cmdline, cwd=extractloopnest, onerror=invoke.Invoke.EXCEPTION)
 
     loopnestfiles = [extractloopnest /  f"{ccfile.stem}-loopnest.json" for ccfile in ccargs.ccfiles]
+    print("Loopnestfiles: ",loopnestfiles)
     loopnestfiles = [f for f in loopnestfiles if f.is_file()]
+
+    if only_polly_dump_loopnest:
+        return loopnestfiles
+
     root = read_json(files=loopnestfiles)
     root.expnumber = 0
     root.depth = 1
@@ -1245,17 +1393,19 @@ def run_experiment(tempdir: pathlib.Path, experiment: Experiment, ccargs, execop
     except subprocess.CalledProcessError:
         # Compilation failed; illegal program
         experiment.duration = math.inf
-        return
+        #return
 
-    try:
-        run_exec(experiment=experiment,cwd=expdir,exefile=exefile,execopts=execopts)
-    except subprocess.TimeoutExpired:
-        # Assume failure
-        experiment.duration = math.inf
-        return
-
-    with logfile.open('a') as f:
-        f.write(f"Measured time is {experiment.duration}\n")
+    if experiment.duration !=math.inf:
+        try:
+            run_exec(experiment=experiment,cwd=expdir,exefile=exefile,execopts=execopts)
+        except subprocess.TimeoutExpired:
+            # Assume failure
+            experiment.duration = math.inf
+            #return
+    
+    if experiment.duration != math.inf:
+        with logfile.open('a') as f:
+            f.write(f"Measured time is {experiment.duration}\n")
 
     if writedot:
         with dotfile.open('w+') as f:
@@ -1299,11 +1449,14 @@ def parse_cc_cmdline(cmdline):
         i += 1
 
     result = argparse.Namespace()
+    print("Argparse.Namespace() Before: ", result)
     result.cwd = pathlib.Path.cwd()
     result.cc = cc
     result.ccfiles = [f.resolve() for f in ccfiles]
     result.o = o
     result.ccflags = ccflags
+    print("Argparse.Namespace() After: ", result, "\n")
+    
     return result
 
 

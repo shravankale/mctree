@@ -1,14 +1,19 @@
 #! /usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-import sys
+import sys, json, pickle, subprocess
 import tempfile
 import contextlib
 import argparse
+
+from numpy import append
 from mctree import *
 import mctree.tool.invoke as invoke
 from mctree.tool.support import *
 import mctree 
+#from mctree import ParameterCounter
+#import mctree.ytopt_parameter_counter as ypc
+#from mctree.tool.support import process_ytopt_results
 
 # Decorator
 commands = {}
@@ -23,12 +28,12 @@ def subcommand(name):
 @subcommand("autotune")
 def autotune(parser, args):
     if parser:
-        add_boolean_argument(parser, 'keep')
+        add_boolean_argument(parser, 'keep', default=True)
         parser.add_argument('--exec-arg', action='append')
         parser.add_argument('--exec-args', action='append')
         add_boolean_argument(parser, 'polybench-time')
         parser.add_argument('--ld-library-path', action='append')
-        parser.add_argument('--outdir')
+        parser.add_argument('--outdir', action='append')
         parser.add_argument('--timeout', type=float,
                             help="Max exec time in seconds; default is no timout")
         parser.add_argument('ccline', nargs=argparse.REMAINDER)
@@ -37,6 +42,8 @@ def autotune(parser, args):
         ccargs.polybench_time = args.polybench_time
 
         execopts = argparse.Namespace()
+
+        print("Argparse.Namespace() execopts: ", execopts, "\n")
 
         execopts.ld_library_path = None
         if args.ld_library_path != None:
@@ -49,15 +56,34 @@ def autotune(parser, args):
 
         execopts.args = shcombine(arg=args.exec_arg,args=args.exec_args)
 
-        outdir = mkpath(args.outdir)
+        print("Argparse.Namespace() execopts: ", execopts, "\n")
+
+        outdir = mkpath(args.outdir[0])
+        print("Outdir path: ",outdir)
         num_experiments = 0
 
+        DEBUG_MODE=True
         with contextlib.ExitStack() as stack:
-            if args.keep:
+            if args.keep and not DEBUG_MODE:
                 d = tempfile.mkdtemp(dir=outdir, prefix='mctree-')
+            elif DEBUG_MODE:
+                d = str(outdir)+"/mctree-dbg"
+                if not os.path.exists(d):
+                    os.makedirs(d)
+                else:
+                    import shutil
+                    shutil.rmtree(d)
+                    os.makedirs(d)
+                    """for file in os.listdir(d):
+                        if os.path.isfile(file):
+                            os.remove(file)
+                    """
             else:
                 d = stack.enter_context(tempfile.TemporaryDirectory(dir=outdir, prefix='mctree-'))
             d = mkpath(d)
+
+
+            print("Path d in autotune subcommand: ",d)
 
             bestfile = d / 'best.txt'
             csvfile = d / 'experiments.csv'
@@ -70,6 +96,8 @@ def autotune(parser, args):
             print(root)
             print("")
 
+            #X- Add a check to see if root is empty or has no nestexperiments
+
             def priorotyfunc(x): 
                 return -math.inf if x.duration is None else x.duration.total_seconds()
             pq = PriorityQueue(root, key=priorotyfunc)
@@ -81,11 +109,12 @@ def autotune(parser, args):
 
             while not pq.empty():
                 item = pq.top()
-
+                
+                #X- Execution block
                 if item.duration == None:
                     num_experiments += 1
                     run_experiment(d, item, ccargs=ccargs, execopts=execopts, 
-                        writedot=num_experiments < 30, 
+                        writedot=num_experiments < 90, 
                         dotfilter=None,
                         dotexpandfilter=lambda n: n in closed,
                         root=root)
@@ -115,19 +144,32 @@ def autotune(parser, args):
                     csvlog.flush()
                     continue
 
-
+                #X- Expansion block
                 if not item in closed:
-                    print(f"Selecting best experiment {item.duration} for expansion")
-                    for child in item.children():
-                        pq.push(child)
+                    #X- Depth Control
+                    #if False:
+                    if item.depth > args.maxdepth:
+                        #closed.add(item)
+                        pq.pop()
+                        continue
 
-                    closed.add(item)
-                    continue
+                    else:
+                        print(f"Selecting best experiment {item.duration} for expansion")
+                        for child in item.children():
+                            pq.push(child)
+
+                        closed.add(item)
+                        continue
 
                 if item in closed and item.duration != None:
                     pq.pop()
 
             print("No more experiments!!?")
+
+@subcommand("export-loopnest-json")
+def exportLoopnestJson(parser,args):
+    #X- TODO Write a subcommand to export loopnest-json of a kernel
+    return None
 
 
 @subcommand("example")
@@ -163,13 +205,97 @@ def jsonfile(parser, args):
 
 import mctree.ytoptgen as ytoptgen
 
+"""
 @subcommand("ytopt-problem")
 def ytopt(parser, args):
     if parser:
+        add_boolean_argument(parser, 'keep', default=True)
         parser.add_argument('filename', nargs='+')
         parser.add_argument('--outdir',type=pathlib.Path)
     if args:
-        ytoptgen.gen_ytopt_problem(filename=args.filename,outdir=args.outdir, max_depth=args.maxdepth)
+
+        with contextlib.ExitStack() as stack:
+            if args.keep:
+                d = tempfile.mkdtemp(dir=args.outdir, prefix='ytopy-')
+            else:
+                d = stack.enter_context(tempfile.TemporaryDirectory(dir=outdir, prefix='ytopt-'))
+            d = mkpath(d)
+
+            print("Path d in ytopt subcommand: ",d)
+
+            ytoptgen.gen_ytopt_problem(filename=args.filename,outdir=d, max_depth=args.maxdepth)
+"""
+
+@subcommand("ytopt-problem")
+def ytopt(parser, args):
+    if parser:
+        #parser.add_argument('--filename', nargs='+')
+        add_boolean_argument(parser, 'keep', default=True)
+        add_boolean_argument(parser, 'polybench-time')
+        parser.add_argument('--ld-library-path', action='append')
+        parser.add_argument('--outdir', action='store')
+        parser.add_argument('--timeout', type=float,
+                            help="Max exec time in seconds; default is no timout")
+        parser.add_argument('ccline', nargs=argparse.REMAINDER)
+    if args:
+
+        DEBUG_MODE = True
+        with contextlib.ExitStack() as stack:
+            if args.keep and not DEBUG_MODE:
+                d = tempfile.mkdtemp(dir=args.outdir, prefix='ytopy-')
+            elif DEBUG_MODE:
+                d = args.outdir+"/ytopt_dbg"
+                if not os.path.exists(d):
+                    os.makedirs(d)
+                else:
+                    import shutil
+                    shutil.rmtree(d)
+                    os.makedirs(d)
+                
+            else:
+                d = stack.enter_context(tempfile.TemporaryDirectory(dir=args.outdir, prefix='ytopt-'))
+            d = mkpath(d)
+
+            #Collecting ccargs and exeopts
+            ccargs = parse_cc_cmdline(args.ccline)
+            ccargs.polybench_time = args.polybench_time
+
+            execopts = argparse.Namespace()
+
+            execopts.ld_library_path = None
+            if args.ld_library_path != None:
+                execopts.ld_library_path = ':'.join(args.ld_library_path)
+
+            execopts.timeout = None
+            if args.timeout != None:
+                execopts.timeout = datetime.timedelta(seconds=args.timeout)
+            execopts.polybench_time = args.polybench_time
+
+            #execopts.args = shcombine(arg=args.exec_arg,args=args.exec_args)
+
+            #ccargs and execopts to be used by ytopt plopper.py
+            pickle.dump(ccargs,open(d/"ccargs","wb"))
+            pickle.dump(execopts,open(d/"execopts","wb"))
+
+            loopnestfiles = extract_loopnests(d, ccargs, execopts, only_polly_dump_loopnest=True)
+            #X- Pass only the kernel file to ytoptgen
+            ytoptgen.gen_ytopt_problem(filename=loopnestfiles,outdir=d, max_depth=args.maxdepth)
+
+            #if args.exec_ytopt:
+            ytopt_search_cmd = "python -m ytopt.search.ambs --evaluator ray --problem problem.Problem --max-evals=10 --learner RF"
+            ytopt_exec_status = subprocess.run(ytopt_search_cmd, shell=True, cwd=str(d),  stdout=subprocess.PIPE) #stderr=subprocess.PIPE 
+            
+            #X- Add try-catch block for subprocess runs
+            if ytopt_exec_status.stderr:
+                print(ytopt_exec_status.stderr)
+
+            pragma, elapsed_sec, objective_value = process_ytopt_results(d / "results.csv")
+            print("Pragma: ",pragma)
+            print("Elaspsed msecs: ",elapsed_sec)
+            print("Objective Value: ",objective_value)
+
+            print("Fin.")
+
 
 
 
@@ -177,21 +303,21 @@ def main(argv: str) -> int:
     global transformers 
     parser = argparse.ArgumentParser(description="Loop transformation search tree proof-of-concept", allow_abbrev=False)
 
-    parser.add_argument('--maxdepth', type=int, default=2)
-    add_boolean_argument(parser, "--tiling", default=True)
+    parser.add_argument('--maxdepth', type=int, default=1)
+    add_boolean_argument(parser, "--tiling", default=False)
     parser.add_argument('--tiling-sizes')
-    add_boolean_argument(parser, "--threading", default=True)
+    add_boolean_argument(parser, "--threading", default=False)
     add_boolean_argument(parser, "--interchange", default=True)
-    add_boolean_argument(parser, "--reversal", default=True)
-    add_boolean_argument(parser, "--unrolling", default=True)
-    add_boolean_argument(parser, "--unrolling-full", default=True)
+    add_boolean_argument(parser, "--reversal", default=False)
+    add_boolean_argument(parser, "--unrolling", default=False)
+    add_boolean_argument(parser, "--unrolling-full", default=False)
     parser.add_argument('--unrolling-factors')
-    add_boolean_argument(parser, "--unrolling-and-jam", default=True)
+    add_boolean_argument(parser, "--unrolling-and-jam", default=False)
     #add_boolean_argument(parser, "--unrolling-and-jam-full", default=True)
     parser.add_argument('--unrolling-and-jam-factors')
     parser.add_argument('--packing-arrays',action='append')
-    add_boolean_argument(parser, "--fission", default=True)
-    add_boolean_argument(parser, "--fusion", default=True)
+    add_boolean_argument(parser, "--fission", default=False)
+    add_boolean_argument(parser, "--fusion", default=False)
     add_boolean_argument(parser, "--parametric", default=False)
 
     subparsers = parser.add_subparsers(dest='subcommand')
@@ -199,6 +325,12 @@ def main(argv: str) -> int:
         subparser = subparsers.add_parser(cmd)
         func(parser=subparser, args=None)
     args = parser.parse_args(str(v) for v in argv[1:])
+    #args = parser.parse_args()
+    
+
+    #print("Listing args: ")
+    #print("Argv: ",argv)
+    #print("Args: ",args)
 
     if args.tiling:
         tilesizes = [4,16]
@@ -215,8 +347,9 @@ def main(argv: str) -> int:
     if args.reversal:
         transformers.append(Reversal.get_factory())
     if args.unrolling:
+        
         if args.unrolling_full:
-            transformers.append(UnrollingFull.get_factory(factors))   
+            transformers.append(UnrollingFull.get_factory())   
 
         factors = [2, 4, 8]
         if args.unrolling_factors != None:
@@ -230,9 +363,10 @@ def main(argv: str) -> int:
         if args.unrolling_and_jam_factors != None:
             factors = [int(s) for s in args.unrolling_and_jam_factors.split(',')]
         if args.parametric:
-            transformers.append(UnrollingAndJam.get_factory(factors))
-        else:
             transformers.append(UnrollingAndJamParametric.get_factory(factors))
+        else:
+            transformers.append(UnrollingAndJam.get_factory(factors))
+            
     pack_arrays = set()
     if args.packing_arrays:
             pack_arrays = set(arr for arrlist in args.packing_arrays for arr in arrlist.split(','))
@@ -243,6 +377,10 @@ def main(argv: str) -> int:
     if args.fusion:
         transformers.append(Fusion.get_factory())
 
+    print("Number of Transformers: ",len(transformers))
+    #print("Transformers: ",transformers[0])
+    #sys.exit(0)
+    #print("Args: ",args)
 
     cmdlet = commands.get(args.subcommand)
     if not cmdlet:

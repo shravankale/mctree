@@ -1,3 +1,27 @@
+#VSCode and Cobalt
 /.vscode/
 __pycache__/
 /.vs/
+`
+*.cobaltlog
+*.error
+*.output
+
+#Experiment folders
+mctree-*
+ytopt-*
+base
+mctree_dem*
+ytopt_dbg
+unrollandjam
+oned
+
+#Files
+*.out
+gemm.env
+*.log
+debug_*.txt
+ytopt_bkp.py
+ytoptgen_bkp.py
+pragma_parameter_replacement.py
+gemm_interactive_pyintepreter.py

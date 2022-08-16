@@ -13,7 +13,8 @@ import shutil
 import sys
 import stat
 from pathlib import Path
-
+import re
+import pandas as pd
 
 
 
@@ -335,6 +336,46 @@ def eprint(*args, **kwargs):
 def die(msg):
     eprint(msg)
     sys.exit(1)
+
+def process_ytopt_results(file):
+
+    results = pd.read_csv(file,keep_default_na=False,na_values="NA",na_filter=False)
+    top1 = results.nsmallest(1,"elapsed_sec",keep="all")
+    top1_elapsed_sec = top1["elapsed_sec"][0]
+    top1_objective = top1["objective"][0]
+
+    top1_filtered = top1.filter(regex='P([0-9]+)',axis=1)
+
+    pragma = pragma_parameter_replacement(top1_filtered.iloc[0].to_dict())
+
+    return pragma, top1_elapsed_sec, top1_objective
+    
+def pragma_parameter_replacement(dict_values):
+  """
+  Original code from YTOpt: https://github.com/ytopt-team/ytopt
+
+  https://github.com/ytopt-team/ytopt/blob/main/ytopt/benchmark/convolution-2d/plopper/plopper.py
+  """
+  #Input: A dictionary of parameter,value pairs
+  #Output: Pragma string with parmeters subsituted for its corresponding values
+
+  stop = False
+  line = dict_values["P0"]
+  modify_line = line
+
+  try:
+      while not stop:
+        if not re.search(r"#P([0-9]+)", modify_line):
+          stop = True
+        for m in re.finditer(r"#P([0-9]+)", modify_line):
+          modify_line = re.sub(r"#P"+m.group(1), dict_values["P"+m.group(1)], modify_line)
+  except Exception as e:
+    print("Dictionary values: ", dict_values)
+    raise Exception(e)
+
+  return modify_line
+
+
 
 
 
