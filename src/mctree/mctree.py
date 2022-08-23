@@ -600,82 +600,6 @@ class Threading:
         return [parallel_loop], [pragma], []
 
 
-class Interchange2:
-    @staticmethod
-    def get_factory():
-        def factory(loop: Loop):
-            if loop.isloop and loop.transformable:
-                return Interchange2(loop)
-            return None
-        return factory
-
-    def __init__(self, loop: Loop):
-        self.loop = loop
-        self.num_children = mcount(self.selector())
-
-    def selector(self):
-        loopnest = self.loop.perfectnest()
-        n = len(loopnest)
-
-        # If there is nothing to permute
-        if n <= 1:
-            return
-
-        def make_make_child_closure(d):
-            def make_child(loopcounter, idx: int):
-                orignest = loopnest.copy()
-                remaining = loopnest.copy()
-                perm = []
-
-                i = idx
-
-                # New topmost loop cannot be the old topmost
-                # Otherwise it should be an interchange of the nested loop; this also excludes the identity permutation
-                select = i % (len(remaining) - 1) + 1
-                i //= (len(remaining) - 1)
-                perm.append(remaining[select])
-                del remaining[select]
-
-                while remaining:
-                    select = i % len(remaining)
-                    i //= len(remaining)
-                    perm.append(remaining[select])
-                    del remaining[select]
-
-                assert i == 0
-                assert len(perm) == n
-                assert len(remaining) == 0
-
-                # Strip trailing unchanged loops
-                while perm[-1] == orignest[-1]:
-                    del perm[-1]
-                    del orignest[-1]
-
-                newperm = [Loop.createLoop(name=f'perm{loopcounter.nextId()}') for l in perm]
-                for p, c in neighbors(newperm):
-                    p.subloops = [c]
-                ##X- Adding the trailing unchanged loops back to the newperm loopnest
-                newperm[-1].subloops = orignest[-1].subloops
-
-                nestids = [p.name for p in orignest]
-                permids = [p.name for p in perm]
-                newpermids = [p.name for p in newperm]
-                pragma = f"#pragma clang loop({','.join(nestids)}) interchange permutation({','.join(permids)}) permuted_ids({','.join(newpermids)})"
-                return [newperm[0]], [pragma], []
-            return make_child
-
-        num_children = (n-1)
-        for i in range(1, n-1):
-            num_children *= i
-        for d in range(1, n+1):
-            yield num_children, make_make_child_closure(d)
-
-    def get_num_children(self):
-        return self.num_children
-
-    def get_child(self, loopcounter, idx: int):
-        return mcall(self.selector(), loopcounter, idx)
-
 class Interchange:
     @staticmethod
     def get_factory():
@@ -697,56 +621,56 @@ class Interchange:
         if n <= 1:
             return
 
-        def make_make_child_closure(d):
-            def make_child(loopcounter, idx: int):
-                orignest = loopnest.copy()
-                remaining = loopnest.copy()
-                perm = []
+       
+        def make_child(loopcounter, idx: int):
+            orignest = loopnest.copy()
+            remaining = loopnest.copy()
+            perm = []
 
-                i = idx
+            i = idx
 
-                # New topmost loop cannot be the old topmost
-                # Otherwise it should be an interchange of the nested loop; this also excludes the identity permutation
-                select = i % (len(remaining) - 1) + 1
-                i //= (len(remaining) - 1)
+            # New topmost loop cannot be the old topmost
+            # Otherwise it should be an interchange of the nested loop; this also excludes the identity permutation
+            select = i % (len(remaining) - 1) + 1
+            i //= (len(remaining) - 1)
+            perm.append(remaining[select])
+            del remaining[select]
+
+            while remaining:
+                select = i % len(remaining)
+                i //= len(remaining)
                 perm.append(remaining[select])
                 del remaining[select]
 
-                while remaining:
-                    select = i % len(remaining)
-                    i //= len(remaining)
-                    perm.append(remaining[select])
-                    del remaining[select]
+            assert i == 0
+            assert len(perm) == n
+            assert len(remaining) == 0
 
-                assert i == 0
-                assert len(perm) == n
-                assert len(remaining) == 0
+            # Strip trailing unchanged loops
+            while perm[-1] == orignest[-1]:
+                del perm[-1]
+                del orignest[-1]
 
-                # Strip trailing unchanged loops
-                while perm[-1] == orignest[-1]:
-                    del perm[-1]
-                    del orignest[-1]
+            newperm = [Loop.createLoop(name=f'perm{loopcounter.nextId()}') for l in perm]
+            for p, c in neighbors(newperm):
+                p.subloops = [c]
+            ##X- Adding the trailing unchanged loops back to the newperm loopnest
+            newperm[-1].subloops = orignest[-1].subloops
 
-                newperm = [Loop.createLoop(name=f'perm{loopcounter.nextId()}') for l in perm]
-                for p, c in neighbors(newperm):
-                    p.subloops = [c]
-                ##X- Adding the trailing unchanged loops back to the newperm loopnest
-                newperm[-1].subloops = orignest[-1].subloops
+            nestids = [p.name for p in orignest]
+            permids = [p.name for p in perm]
+            newpermids = [p.name for p in newperm]
+            pragma = f"#pragma clang loop({','.join(nestids)}) interchange permutation({','.join(permids)}) permuted_ids({','.join(newpermids)})"
+            return [newperm[0]], [pragma], []
+       
 
-                nestids = [p.name for p in orignest]
-                permids = [p.name for p in perm]
-                newpermids = [p.name for p in newperm]
-                pragma = f"#pragma clang loop({','.join(nestids)}) interchange permutation({','.join(permids)}) permuted_ids({','.join(newpermids)})"
-                return [newperm[0]], [pragma], []
-            return make_child
-
-        
         num_children = (n-1)
-        #for i in range(1, n-1):
-            #num_children *= i
-        #for d in range(1, n-1):
-            #yield 1, make_make_child_closure(d)
-        yield 1, make_make_child_closure(1)
+        for i in range(1, n):
+            num_children *= i
+        
+        # for d in range(1, n+1):
+            #yield num_children, make_make_child_closure(d)
+        yield num_children,make_child
 
     def get_num_children(self):
         return self.num_children
@@ -931,8 +855,9 @@ class UnrollingAndJamParametric:
                     jam.subloops =  [s for s in sub.subloops]
                     for subloop in jam.subloops:
                         #X- check subloop
+                        #X- FixMe - Fails assertion error at depth>2 when used with Tilling Parametric
                         #subloops.transformable = False
-                        subloop.transformable = False
+                        subloop.transformable = True
                     new_subloops.append(jam)
                 else:
                     streak.append(sub)
@@ -1075,6 +1000,43 @@ class ArrayPacking:
         return mcall(self.selector(), loopcounter, idx)
 
 
+class Fission_old:
+    @staticmethod
+    def get_factory():
+        def factory(loop):
+            if loop.isloop and loop.transformable:
+                return Fission_old(loop)
+            return None
+        return factory
+
+    def __init__(self, loop):
+        self.loop = loop
+        self.num_children = mcount(self.selector())
+
+    def selector(self):
+        loop = self.loop
+        subcount = len(loop.subloops)
+
+        # One split point
+        # TODO: arbitrary number of split points (2^n possibilities)
+        def make_fission(loopcounter,idx: int):
+            split_at = idx+1
+            assert 0 < split_at < subcount
+            head_loop = Loop.createLoop(name=f"head{loopcounter.nextId()}")
+            head_loop.subloops = loop.subloops[:split_at]
+            tail_loop = Loop.createLoop(name=f"tail{loopcounter.nextId()}")
+            tail_loop.subloops = loop.subloops[split_at:]
+            pragma = f"#pragma clang loop({loop.name}) fission split_at({idx})"
+            return [head_loop,tail_loop], [pragma], []
+
+        yield subcount-1,make_fission
+    
+    def get_num_children(self):
+        return self.num_children
+
+    def get_child(self, loopcounter, idx: int):
+        return mcall(self.selector(), loopcounter, idx)
+
 class Fission:
     @staticmethod
     def get_factory():
@@ -1101,10 +1063,13 @@ class Fission:
             head_loop.subloops = loop.subloops[:split_at]
             tail_loop = Loop.createLoop(name=f"tail{loopcounter.nextId()}")
             tail_loop.subloops = loop.subloops[split_at:]
-            pragma = f"#pragma clang loop({loop.name}) fission split_at({idx})"
+            #pragma = f"#pragma clang loop({loop.name}) fission split_at({idx})"
+            pragma = f"#pragma clang loop({loop.name}) fission split_at({split_at}) fissioned_ids({head_loop.name},{tail_loop.name})"
             return [head_loop,tail_loop], [pragma], []
 
         yield subcount-1,make_fission
+        #for child in range(1,subcount):
+            #yield child, make_fission
 
 
     def get_num_children(self):
