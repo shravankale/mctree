@@ -1000,43 +1000,6 @@ class ArrayPacking:
         return mcall(self.selector(), loopcounter, idx)
 
 
-class Fission_old:
-    @staticmethod
-    def get_factory():
-        def factory(loop):
-            if loop.isloop and loop.transformable:
-                return Fission_old(loop)
-            return None
-        return factory
-
-    def __init__(self, loop):
-        self.loop = loop
-        self.num_children = mcount(self.selector())
-
-    def selector(self):
-        loop = self.loop
-        subcount = len(loop.subloops)
-
-        # One split point
-        # TODO: arbitrary number of split points (2^n possibilities)
-        def make_fission(loopcounter,idx: int):
-            split_at = idx+1
-            assert 0 < split_at < subcount
-            head_loop = Loop.createLoop(name=f"head{loopcounter.nextId()}")
-            head_loop.subloops = loop.subloops[:split_at]
-            tail_loop = Loop.createLoop(name=f"tail{loopcounter.nextId()}")
-            tail_loop.subloops = loop.subloops[split_at:]
-            pragma = f"#pragma clang loop({loop.name}) fission split_at({idx})"
-            return [head_loop,tail_loop], [pragma], []
-
-        yield subcount-1,make_fission
-    
-    def get_num_children(self):
-        return self.num_children
-
-    def get_child(self, loopcounter, idx: int):
-        return mcall(self.selector(), loopcounter, idx)
-
 class Fission:
     @staticmethod
     def get_factory():
@@ -1068,17 +1031,12 @@ class Fission:
             return [head_loop,tail_loop], [pragma], []
 
         yield subcount-1,make_fission
-        #for child in range(1,subcount):
-            #yield child, make_fission
-
-
+    
     def get_num_children(self):
         return self.num_children
 
     def get_child(self, loopcounter, idx: int):
         return mcall(self.selector(), loopcounter, idx)
-
-
 
 class Fusion:
     @staticmethod
@@ -1237,7 +1195,7 @@ def make_ccline(ccargs, ccfiles=None, outfile=None, debuginfo=None, extraflags=[
     else:
         cmdline += ['-fopenmp']
     cmdline += ['-mllvm', '-polly-omp-backend=LLVM', '-mllvm', '-polly-scheduling=static']
-    cmdline += ['-Werror=pass-failed']
+    #cmdline += ['-Werror=pass-failed']
     cmdline += extraflags
     cmdline += ['-o', outfile]
     return cmdline
