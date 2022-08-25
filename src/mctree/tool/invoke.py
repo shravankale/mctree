@@ -61,7 +61,12 @@ class Invoke:
 
 
     def __init__(self,cmd,*args,cwd=None,setenv=None,appendenv=None,stdout=None,stderr=None,std_joined=None,std_prefixed=None):
-        self.cmdline = [str(cmd)] + [str(a) for a in args]
+        #Generealized cmdline for popen
+        if isinstance(cmd, (str,pathlib.PosixPath)):
+            cmd = [str(cmd)]
+        self.cmdline = [str(s) for s in cmd] + [str(a) for a in args]
+        #End Generealized cmdline for popen
+        #self.cmdline = [str(cmd)] + [str(a) for a in args]
         self.cwd = cwd
         self.setenv = setenv
         self.appendenv = appendenv
@@ -100,7 +105,10 @@ class Invoke:
                 print_stdout=False,print_stderr=False,print_prefixed=False,print_command=False,print_exitcode=False,
                 return_exitcode=False,return_stdout=False,return_stderr=False,return_joined=False,return_prefixed=False,
                 stdout=None,stderr=None,std_joined=None,std_prefixed=None):
-        cmdline = [str(s) for s in self.cmdline]
+        #cmdline = [str(s) for s in self.cmdline]
+        #Generealized cmdline for popen
+        cmdline = self.cmdline
+        #End Generealized cmdline for popen
         cwd = None if (self.cwd is None) else str(self.cwd)
         env = Invoke.assemble_env(setenv=self.setenv,appendenv=self.appendenv) if self.setenv or self.appendenv else None
         stdin=None
