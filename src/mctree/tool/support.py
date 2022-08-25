@@ -340,9 +340,9 @@ def die(msg):
 def process_ytopt_results(file):
 
     results = pd.read_csv(file,keep_default_na=False,na_values="NA",na_filter=False)
-    top1 = results.nsmallest(1,"elapsed_sec",keep="all")
-    top1_elapsed_sec = top1["elapsed_sec"][0]
-    top1_objective = top1["objective"][0]
+    top1 = results.nsmallest(1,"objective",keep="all")
+    top1_objective = top1.iloc[0]["objective"]
+    top1_elapsed_sec = top1.iloc[0]["elapsed_sec"]
 
     top1_filtered = top1.filter(regex='P([0-9]+)',axis=1)
 
