@@ -10,7 +10,11 @@ from pathlib import Path
 from socket import timeout
 
 import debugpy
-#import ray
+import ray
+
+#import mctree if inside experiment dir
+sys.path.append("../../../src/")
+import mctree
 
 import mctree.tool.invoke as invoke
 from mctree import make_ccline
@@ -81,17 +85,26 @@ class Plopper:
                     #To avoid writing the Marker
                     f2.write(line)
     
+    
     # Function to find the execution time of the interim file, and return the execution time as cost to the search module
+    #@ray.remote
     def findRuntime(self, x, params):
 
         
         # 5678 is the default attach port in the VS Code debug configurations. Unless a host and port are specified, host defaults to 127.0.0.1
         
-        """debugpy.listen(5672)
-        print("Waiting for debugger attach")
-        debugpy.wait_for_client()
-        debugpy.breakpoint()
-        print('breaking now')"""
+        DEBUG_MODE = False
+        DEBUG_MODE_RAY = False
+        if DEBUG_MODE:
+            debugpy.listen(5672)
+            print("Waiting for debugger attach")
+            debugpy.wait_for_client()
+            debugpy.breakpoint()
+            print('breaking now')
+            #breakpoint()
+        if DEBUG_MODE_RAY:
+            breakpoint()
+        
         
 
         outputdir_exp = self.outputdir+"/Experiment_"+str(self.num_experiment)
@@ -112,11 +125,12 @@ class Plopper:
 
         #compile and find the execution time
         tmpbinary = interimfile[:-2]
+       
         #tmpdir = '/'.join([i for i in interimfile.split('/')[:-1]])
 
         kernel_idx = self.sourcefile.rfind('/')
-        kernel_dir = self.sourcefile[:kernel_idx]
-        utilities_dir = kernel_dir+"/utilities"
+        kernel_exp_dir = self.sourcefile[:kernel_idx]
+        #utilities_dir = kernel_exp_dir+"/utilities"
 
         #commonflags = f"""-DEXTRALARGE_DATASET -DPOLYBENCH_TIME -I{utilities_dir} -I{kernel_dir} {interimfile} {utilities_dir}/polybench.c -o {tmpbinary} -lm -g """
         
@@ -132,43 +146,99 @@ class Plopper:
         #X- Reusing the invoke.diag from MCtree
         #Collecting command lines
         cmdline = make_ccline(self.ccargs, ccfiles=ccfiles, outfile=tmpbinary)
-        print("wait")
+        print("Kernel cmdline: ")
+        print(cmdline)
 
         cc_text = mkpath(outputdir_exp)/"cc.txt"
         exec_text = mkpath(outputdir_exp)/"exec.txt"
-        #Compiling
-        try:
-            invoke.diag(*cmdline, cwd=kernel_dir, onerror=invoke.Invoke.EXCEPTION, std_prefixed=cc_text)
-            #compile_success = True
-        except subprocess.CalledProcessError:
-            # Compilation failed; illegal program
-            print("compile failed")
+
+        use_invoke_diag = True
+
+        if use_invoke_diag:
+            
+            print("wait")
+
+            #Compiling
+            try:
+                invoke.diag(*cmdline, cwd=outputdir_exp, onerror=invoke.Invoke.EXCEPTION, std_prefixed=cc_text)
+                #compile_success = True
+            except subprocess.CalledProcessError:
+                # Compilation failed; illegal program
+                print("compile failed")
+                return exetime
+
+            #Appending tmpbinary with exe.pl from mctree.tool
+            #X- DO NOT add exe_pl_path to make_ccline(outfile=tmpbinary). Its for YTopt run only
+            exe_pl_path = os.path.dirname(os.path.abspath(mctree.tool.__file__))
+            exe_pl = exe_pl_path+"/exe.pl"
+            #tmpbinary = ' '.join([exe_pl,tmpbinary])
+            exec_cmd = [exe_pl,tmpbinary]
+            
+            #Execution
+
+            #X- 1. We lost self.execopts.args somewhere along the road. Might be
+            #just an issue with partial run used for testing. Must fix regardless --FIXED
+            #2. Passing exe.pl along with binary doesn't work with invoke.diag --FIXED
+            
+            try:
+                #run_exec(experiment=experiment,cwd=expdir,exefile=exefile,execopts=execopts)
+                polybench_time = self.execopts.polybench_time
+                #Append tmbinary with path(mcroot)/exe.pl?
+                p = invoke.diag(exec_cmd, *self.execopts.args,timeout=self.execopts.timeout, std_prefixed=exec_text,
+                appendenv={'LD_LIBRARY_PATH': self.execopts.ld_library_path}, cwd=outputdir_exp,onerror=invoke.Invoke.EXCEPTION,return_stdout=polybench_time)
+
+                
+                if polybench_time:
+                    compiletime = datetime.timedelta(seconds=float(p.stdout.rstrip().splitlines()[-1]))
+                    exetime = compiletime.microseconds / (10**6) #micrsoseconds -> seconds
+                    print(f"Execution completed in {p.walltime}; polybench measurement: {compiletime}")
+                else:
+                    exetime = p.walltime.microseconds / (10**6)
+                    print(f"Execution completed in {p.walltime}")
+            except subprocess.TimeoutExpired:
+                # Assume failure
+                print("Execution timeout reached")
+                #raise Exception("Execution incomplete")
+                return exetime
+                #return 1
+            
+            #return execution time as cost
+            print("DICT_VAL, EXETIME",dictVal,exetime)
             return exetime
-
         
-        #Execution
-        
-        try:
-            #run_exec(experiment=experiment,cwd=expdir,exefile=exefile,execopts=execopts)
-            polybench_time = self.execopts.polybench_time
-            #Append tmbinary with path(mcroot)/exe.pl
-            p = invoke.diag(tmpbinary, *self.execopts.args,timeout=self.execopts.timeout, std_prefixed=exec_text,
-            appendenv={'LD_LIBRARY_PATH': self.execopts.ld_library_path}, cwd=kernel_dir,onerror=invoke.Invoke.EXCEPTION,return_stdout=polybench_time)
+        else:
 
-            if polybench_time:
-                exetime = datetime.timedelta(seconds=float(p.stdout.rstrip().splitlines()[-1]))
-                print(f"Execution completed in {p.walltime}; polybench measurement: {exetime}")
+            #X- Without reusing invoke.diag from MCTree
+            #Remove Posixpath links
+            clang_cmd = [str(cmd) if isinstance(cmd,Path) else cmd for cmd in cmdline]
+            clang_cmd = " ".join([cmd for cmd in clang_cmd])
+
+            exe_pl_path = os.path.dirname(os.path.abspath(mctree.tool.__file__))
+            exe_pl = exe_pl_path+"/exe.pl"
+            tmpbinary = ' '.join([exe_pl,tmpbinary])
+            run_cmd = "LD_LIBRARY_PATH=${LD_LIBRARY_PATH}:"+self.execopts.ld_library_path + " " + tmpbinary
+
+            #compile_log = open(outputdir_exp"")
+            #Compiling
+            compilation_status = subprocess.run(clang_cmd, shell=True, stderr=subprocess.PIPE)
+
+            if compilation_status.returncode == 0 :
+                execution_status = subprocess.run(run_cmd, shell=True, stdout=subprocess.PIPE)
+                exetime = float(execution_status.stdout.decode('utf-8'))
+
+                if exetime == 0:
+                    exetime = 1
+
             else:
-                exetime = p.walltime
-                print(f"Execution completed in {p.walltime}")
-        except subprocess.TimeoutExpired:
-            # Assume failure
-            print("Execution timeout reached")
+                print(compilation_status.stderr)
+                print("compile failed")
+                #print(run_cmd)
+                #raise Exception("Check kernel")
+                #exetime = math.inf
+
+            #return execution time as cost
+            print("DICT_VAL, EXETIME",dictVal,exetime)
             return exetime
-            #return 1
-        
-        #return execution time as cost
-        return exetime
         
         """
         #X- Without reusing invoke.diag from MCTree
