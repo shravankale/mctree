@@ -232,6 +232,8 @@ def ytopt(parser, args):
         #parser.add_argument('--filename', nargs='+')
         add_boolean_argument(parser, 'keep', default=True)
         add_boolean_argument(parser, 'polybench-time')
+        parser.add_argument('--exec-arg', action='append')
+        parser.add_argument('--exec-args', action='append')
         parser.add_argument('--ld-library-path', action='append')
         parser.add_argument('--outdir', action='store')
         parser.add_argument('--timeout', type=float,
@@ -250,8 +252,7 @@ def ytopt(parser, args):
                 else:
                     import shutil
                     shutil.rmtree(d)
-                    os.makedirs(d)
-                
+                    os.makedirs(d)   
             else:
                 d = stack.enter_context(tempfile.TemporaryDirectory(dir=args.outdir, prefix='ytopt-'))
             d = mkpath(d)
@@ -266,12 +267,13 @@ def ytopt(parser, args):
             if args.ld_library_path != None:
                 execopts.ld_library_path = ':'.join(args.ld_library_path)
 
+            #X- YTopt supports eval timeout passed as an arg to ytopt.search.ambs
             execopts.timeout = None
             if args.timeout != None:
                 execopts.timeout = datetime.timedelta(seconds=args.timeout)
             execopts.polybench_time = args.polybench_time
 
-            #execopts.args = shcombine(arg=args.exec_arg,args=args.exec_args)
+            execopts.args = shcombine(arg=args.exec_arg,args=args.exec_args)
 
             #ccargs and execopts to be used by ytopt plopper.py
             pickle.dump(ccargs,open(d/"ccargs","wb"))
@@ -282,17 +284,24 @@ def ytopt(parser, args):
             ytoptgen.gen_ytopt_problem(filename=loopnestfiles,outdir=d, max_depth=args.maxdepth)
 
             #if args.exec_ytopt:
-            ytopt_search_cmd = "python -m ytopt.search.ambs --evaluator ray --problem problem.Problem --max-evals=10 --learner RF"
+            ytopt_search_cmd = "/home/skale/soft/anaconda3/envs/mctree/bin/python -W ignore::FutureWarning -m ytopt.search.ambs --evaluator ray --problem problem.Problem --max-evals=10 --learner RF"
             ytopt_exec_status = subprocess.run(ytopt_search_cmd, shell=True, cwd=str(d),  stdout=subprocess.PIPE) #stderr=subprocess.PIPE 
             
             #X- Add try-catch block for subprocess runs
             if ytopt_exec_status.stderr:
                 print(ytopt_exec_status.stderr)
 
-            pragma, elapsed_sec, objective_value = process_ytopt_results(d / "results.csv")
+            pragma, elapsed_sec, objective_value = process_ytopt_results(str(d)+"/results.csv")
             print("Pragma: ",pragma)
-            print("Elaspsed msecs: ",elapsed_sec)
+            print("Elaspsed secs: ",elapsed_sec)
             print("Objective Value: ",objective_value)
+
+            results = open(str(d)+"/results.csv","a")
+            results.write("Top 1 result below: \n")
+            results.write("Pragma: "+pragma+"\n")
+            results.write("Elapsed secs: "+str(elapsed_sec)+"\n")
+            results.write("Objective Value: "+str(objective_value))
+            results.close()
 
             print("Fin.")
 
@@ -307,7 +316,7 @@ def main(argv: str) -> int:
     add_boolean_argument(parser, "--tiling", default=False)
     parser.add_argument('--tiling-sizes')
     add_boolean_argument(parser, "--threading", default=False)
-    add_boolean_argument(parser, "--interchange", default=True)
+    add_boolean_argument(parser, "--interchange", default=False)
     add_boolean_argument(parser, "--reversal", default=False)
     add_boolean_argument(parser, "--unrolling", default=False)
     add_boolean_argument(parser, "--unrolling-full", default=False)
@@ -319,6 +328,7 @@ def main(argv: str) -> int:
     add_boolean_argument(parser, "--fission", default=False)
     add_boolean_argument(parser, "--fusion", default=False)
     add_boolean_argument(parser, "--parametric", default=False)
+    add_boolean_argument(parser, "--all-transformations", default=False)
 
     subparsers = parser.add_subparsers(dest='subcommand')
     for cmd, func in commands.items():
@@ -328,9 +338,15 @@ def main(argv: str) -> int:
     #args = parser.parse_args()
     
 
-    #print("Listing args: ")
-    #print("Argv: ",argv)
-    #print("Args: ",args)
+    if args.all_transformations:
+        args.tiling = True
+        args.threading = True
+        args.interchange = True
+        args.reversal = True
+        args.unrolling = False
+        args.unrolling_and_jam = False
+        args.fission = True
+        args.fusion = True
 
     if args.tiling:
         tilesizes = [4,16]
