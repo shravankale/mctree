@@ -62,11 +62,11 @@ def autotune(parser, args):
         print("Outdir path: ",outdir)
         num_experiments = 0
 
-        DEBUG_MODE=True
+        #DEBUG_MODE=False
         with contextlib.ExitStack() as stack:
-            if args.keep and not DEBUG_MODE:
+            if args.keep and not args.debug_mode:
                 d = tempfile.mkdtemp(dir=outdir, prefix='mctree-')
-            elif DEBUG_MODE:
+            elif args.debug_mode:
                 d = str(outdir)+"/mctree-dbg"
                 if not os.path.exists(d):
                     os.makedirs(d)
@@ -86,6 +86,7 @@ def autotune(parser, args):
             print("Path d in autotune subcommand: ",d)
 
             bestfile = d / 'best.txt'
+            statsfile = d / "stats.txt"
             csvfile = d / 'experiments.csv'
             newbestcsvfile = d / 'newbest.csv'
             csvlog = csvfile.open('w+')
@@ -163,7 +164,11 @@ def autotune(parser, args):
 
                 if item in closed and item.duration != None:
                     pq.pop()
-
+            
+            #Write total depth to file
+            with statsfile.open('w') as f:
+                f.write(f"Stats for experiments:\n")
+                f.write(f"Depth level Reached: {bestsofar.depth}")
             print("No more experiments!!?")
 
 @subcommand("export-loopnest-json")
@@ -205,27 +210,6 @@ def jsonfile(parser, args):
 
 import mctree.ytoptgen as ytoptgen
 
-"""
-@subcommand("ytopt-problem")
-def ytopt(parser, args):
-    if parser:
-        add_boolean_argument(parser, 'keep', default=True)
-        parser.add_argument('filename', nargs='+')
-        parser.add_argument('--outdir',type=pathlib.Path)
-    if args:
-
-        with contextlib.ExitStack() as stack:
-            if args.keep:
-                d = tempfile.mkdtemp(dir=args.outdir, prefix='ytopy-')
-            else:
-                d = stack.enter_context(tempfile.TemporaryDirectory(dir=outdir, prefix='ytopt-'))
-            d = mkpath(d)
-
-            print("Path d in ytopt subcommand: ",d)
-
-            ytoptgen.gen_ytopt_problem(filename=args.filename,outdir=d, max_depth=args.maxdepth)
-"""
-
 @subcommand("ytopt-problem")
 def ytopt(parser, args):
     if parser:
@@ -241,11 +225,11 @@ def ytopt(parser, args):
         parser.add_argument('ccline', nargs=argparse.REMAINDER)
     if args:
 
-        DEBUG_MODE = True
+        #DEBUG_MODE = True
         with contextlib.ExitStack() as stack:
-            if args.keep and not DEBUG_MODE:
-                d = tempfile.mkdtemp(dir=args.outdir, prefix='ytopy-')
-            elif DEBUG_MODE:
+            if args.keep and not args.debug_mode:
+                d = tempfile.mkdtemp(dir=args.outdir, prefix='ytopt-')
+            elif args.debug_mode:
                 d = args.outdir+"/ytopt_dbg"
                 if not os.path.exists(d):
                     os.makedirs(d)
@@ -312,6 +296,7 @@ def main(argv: str) -> int:
     global transformers 
     parser = argparse.ArgumentParser(description="Loop transformation search tree proof-of-concept", allow_abbrev=False)
 
+    add_boolean_argument(parser, 'debug-mode', default=False)
     parser.add_argument('--maxdepth', type=int, default=1)
     add_boolean_argument(parser, "--tiling", default=False)
     parser.add_argument('--tiling-sizes')
@@ -343,8 +328,8 @@ def main(argv: str) -> int:
         args.threading = True
         args.interchange = True
         args.reversal = True
-        args.unrolling = False
-        args.unrolling_and_jam = False
+        args.unrolling = True
+        args.unrolling_and_jam = True
         args.fission = True
         args.fusion = True
 
@@ -394,9 +379,6 @@ def main(argv: str) -> int:
         transformers.append(Fusion.get_factory())
 
     print("Number of Transformers: ",len(transformers))
-    #print("Transformers: ",transformers[0])
-    #sys.exit(0)
-    #print("Args: ",args)
 
     cmdlet = commands.get(args.subcommand)
     if not cmdlet:
