@@ -810,8 +810,6 @@ class Unrolling:
     def get_child(self, loopcounter, idx: int):
         return mcall(self.selector(), loopcounter, idx)
 
-
-
 class UnrollingAndJamParametric:
     @staticmethod
     def get_factory(factors):
@@ -853,11 +851,14 @@ class UnrollingAndJamParametric:
                     do_streak()
                     jam = Loop.createLoop(name=f'jam{loopcounter.nextId()}')
                     jam.subloops =  [s for s in sub.subloops]
-                    for subloop in jam.subloops:
+                    #X- Not sure why the jammed subloops are rendered not transformable
+                    # Error on subloop.transformable = False inside the foor loop
+                    """for subloop in jam.subloops:
                         #X- check subloop
                         #X- FixMe - Fails assertion error at depth>2 when used with Tilling Parametric
                         #subloops.transformable = False
                         subloop.transformable = True
+                    """
                     new_subloops.append(jam)
                 else:
                     streak.append(sub)
@@ -876,7 +877,7 @@ class UnrollingAndJamParametric:
 
             unrolled_loop = Loop.createLoop(name=f'unroll{loopcounter.nextId()}')
             unrolled_loop.subloops = new_subloops
-            pragma = f"#pragma clang loop({self.loop.name}, {self.loop.subloops[0].name}) unrollingandjam factor(#{param_factor.name} unrolled_ids({unrolled_loop.name}, {new_subloops[0].name})"
+            pragma = f"#pragma clang loop({self.loop.name}, {self.loop.subloops[0].name}) unrollingandjam factor(#{param_factor.name}) unrolled_ids({unrolled_loop.name}, {new_subloops[0].name})"
             return [unrolled_loop], [pragma], [param_factor]                
 
         yield 1,make_partial_unrollingandjam
@@ -1195,7 +1196,7 @@ def make_ccline(ccargs, ccfiles=None, outfile=None, debuginfo=None, extraflags=[
     else:
         cmdline += ['-fopenmp']
     cmdline += ['-mllvm', '-polly-omp-backend=LLVM', '-mllvm', '-polly-scheduling=static']
-    #cmdline += ['-Werror=pass-failed']
+    cmdline += ['-Werror=pass-failed']
     cmdline += extraflags
     cmdline += ['-o', outfile]
     return cmdline
