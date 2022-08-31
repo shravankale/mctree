@@ -254,8 +254,6 @@ cs = CS.ConfigurationSpace(seed=1234)
                 f.write(f"{param} = CSH.CategoricalHyperparameter(name='{param}', choices={pylist(choices)}, default_value=None)\n")
         
         exp_depth = []
-
-        #X- Missing one child
         for experiment in root.derivatives_recursive(max_depth=max_depth):
             exp_depth.append(experiment.depth)
             param = None
