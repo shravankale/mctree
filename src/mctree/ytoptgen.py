@@ -214,6 +214,8 @@ cs = CS.ConfigurationSpace(seed=1234)
                 f.write(f"{param} = CSH.CategoricalHyperparameter(name='{param}', choices={pylist(choices)}, default_value='')\n") 
        
         """
+        #Counter to keep track of depth reached in the case of a tiemout
+        current_depth=0
         enabledif = dict() 
         experiment_depths = []
 
@@ -243,16 +245,19 @@ cs = CS.ConfigurationSpace(seed=1234)
                             enabledif[cparam]=(param,choice)
                             c = new_cond()
                             conditions.append(f"{c} = CS.EqualsCondition({cparam}, {param}, {pyescape(choice)})")
+                            current_depth +=1
                         else: #child.depth == max_depth:
                             cparam = param_for_experiment(clns)
                             choice = f"{addedpragmas}"
                             enabledif[cparam]=(param,choice)
                             params.remove(cparam)
+                            current_depth +=1
                     
                     choices.append(choice)
                 #empty_string = pyescape("")
                 f.write(f"{param} = CSH.CategoricalHyperparameter(name='{param}', choices={pylist(choices)}, default_value=None)\n")
         
+        counter_num_experiments = 0
         exp_depth = []
         for experiment in root.derivatives_recursive(max_depth=max_depth):
             exp_depth.append(experiment.depth)
@@ -260,7 +265,7 @@ cs = CS.ConfigurationSpace(seed=1234)
             assert len(experiment.nestexperiments)==1
             for cne in experiment.nestexperiments:
                 param = param_for_experiment(cne)
-
+                counter_num_experiments +=1
 
                 eparams = cne.newparams
                 for ep in eparams:
@@ -288,15 +293,18 @@ cs = CS.ConfigurationSpace(seed=1234)
 
         f.write("\n")
         #f.write(f'sourcefile = {pyescape(str(newccfiles))}\n') # TODO: More than one file
-        f.write(f'sourcefile = {pyescape(str(newccfiles[0]))}') # TODO: More than one file
+        f.write(f'sourcefile = {pyescape(str(newccfiles[0]))}\n') # TODO: More than one file
 
         f.write(r"""
 input_space = cs
 output_space = Space([Real(0.0, inf, name='time')])
 
 dir_path = os.path.dirname(os.path.realpath(sourcefile))
-obj = Plopper(sourcefile,dir_path)
-
+obj = Plopper(sourcefile,dir_path)""")
+        f.write(f"\n#Stats that might be useful\n")
+        f.write(f"current_depth_reached = {current_depth}\n")
+        f.write(f"counter_num_experiments = {counter_num_experiments}\n")
+        f.write(r"""
 def myobj(point: dict):
     def plopper_func(x):
         x = np.asarray_chkfinite(x)  # ValueError if any NaN or Inf
@@ -319,6 +327,8 @@ Problem = TuningProblem(
     constraints=None,
     model=None)
 """)
+
+    return current_depth, counter_num_experiments
 
 
 

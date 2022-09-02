@@ -114,7 +114,7 @@ class Plopper:
         
         #compile_success = False
         interimfile = ""
-        exetime = 1
+        exetime = math.inf
         counter = random.randint(1, 10001) # To reduce collision increasing the sampling intervals
 
         interimfile = outputdir_exp+"/tmp_"+str(counter)+".c"

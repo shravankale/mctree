@@ -265,7 +265,10 @@ def ytopt(parser, args):
 
             loopnestfiles = extract_loopnests(d, ccargs, execopts, only_polly_dump_loopnest=True)
             #X- Pass only the kernel file to ytoptgen
-            ytoptgen.gen_ytopt_problem(filename=loopnestfiles,outdir=d, max_depth=args.maxdepth)
+            current_depth, counter_num_experiments = ytoptgen.gen_ytopt_problem(filename=loopnestfiles,outdir=d, max_depth=args.maxdepth)
+            print(f"YTopt problem generated")
+            print(f"Depth reached/Max depth: {current_depth}/{args.maxdepth}")
+            print(f"Total Experiments in search space: {counter_num_experiments}")
 
             #if args.exec_ytopt:
             ytopt_search_cmd = "/home/skale/soft/anaconda3/envs/mctree/bin/python -W ignore::FutureWarning -m ytopt.search.ambs --evaluator ray --problem problem.Problem --max-evals=10 --learner RF"

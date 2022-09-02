@@ -9,6 +9,7 @@ import os
 import pathlib
 import subprocess
 
+import mctree
 import mctree.tool.invoke as invoke
 from mctree.tool.support import *
 import mctree.tool.ytopt_parameter_counter as ypc

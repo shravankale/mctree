@@ -10,6 +10,8 @@ __pycache__/
 #Experiment folders
 mctree-*
 ytopt-*
+ytopt_d*
+ytopy-*
 base
 mctree_dem*
 ytopt_dbg
@@ -27,3 +29,4 @@ ytopt_bkp.py
 ytoptgen_bkp.py
 pragma_parameter_replacement.py
 gemm_interactive_pyintepreter.py
+gemm-run-*.sh
