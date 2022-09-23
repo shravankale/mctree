@@ -19,6 +19,8 @@ unrollandjam
 oned
 jlse-logs
 transformation-test-codes
+timming_experiment
+Experiment_1
 
 #Files
 *.out
@@ -30,3 +32,10 @@ ytoptgen_bkp.py
 pragma_parameter_replacement.py
 gemm_interactive_pyintepreter.py
 gemm-run-*.sh
+run-ytopt.py
+display_results.py
+*.sh
+ccargs
+exeopts
+cc.txt
+timmer_plopper.py
