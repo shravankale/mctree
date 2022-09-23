@@ -92,8 +92,8 @@ class Plopper:
 
         
         # 5678 is the default attach port in the VS Code debug configurations. Unless a host and port are specified, host defaults to 127.0.0.1
-        
-        DEBUG_MODE = False
+        """
+        DEBUG_MODE = True
         DEBUG_MODE_RAY = False
         if DEBUG_MODE:
             debugpy.listen(5672)
@@ -104,7 +104,7 @@ class Plopper:
             #breakpoint()
         if DEBUG_MODE_RAY:
             breakpoint()
-        
+        """
         
 
         outputdir_exp = self.outputdir+"/Experiment_"+str(self.num_experiment)
@@ -115,7 +115,7 @@ class Plopper:
         #compile_success = False
         interimfile = ""
         exetime = math.inf
-        counter = random.randint(1, 10001) # To reduce collision increasing the sampling intervals
+        counter = random.randint(1, 1000001) # To reduce collision increasing the sampling intervals
 
         interimfile = outputdir_exp+"/tmp_"+str(counter)+".c"
 
@@ -169,11 +169,13 @@ class Plopper:
 
             #Appending tmpbinary with exe.pl from mctree.tool
             #X- DO NOT add exe_pl_path to make_ccline(outfile=tmpbinary). Its for YTopt run only
-            exe_pl_path = os.path.dirname(os.path.abspath(mctree.tool.__file__))
-            exe_pl = exe_pl_path+"/exe.pl"
-            #tmpbinary = ' '.join([exe_pl,tmpbinary])
-            exec_cmd = [exe_pl,tmpbinary]
-            
+            #X- Polybench already supports timming a kernel 5 times, limit below to non-polybench code; Requires a bashscript in pollybench to run 5 times
+            if not self.execopts.polybench_time:
+                exe_pl_path = os.path.dirname(os.path.abspath(mctree.tool.__file__))
+                exe_pl = exe_pl_path+"/exe.pl"
+                exec_cmd = [exe_pl,tmpbinary]
+                
+            exec_cmd = [tmpbinary]
             #Execution
 
             #X- 1. We lost self.execopts.args somewhere along the road. Might be
@@ -190,10 +192,10 @@ class Plopper:
                 
                 if polybench_time:
                     compiletime = datetime.timedelta(seconds=float(p.stdout.rstrip().splitlines()[-1]))
-                    exetime = compiletime.microseconds / (10**6) #micrsoseconds -> seconds
+                    exetime = compiletime.total_seconds() #float
                     print(f"Execution completed in {p.walltime}; polybench measurement: {compiletime}")
                 else:
-                    exetime = p.walltime.microseconds / (10**6)
+                    exetime = p.walltime.total_seconds() #float
                     print(f"Execution completed in {p.walltime}")
             except subprocess.TimeoutExpired:
                 # Assume failure
