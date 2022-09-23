@@ -225,7 +225,6 @@ cs = CS.ConfigurationSpace(seed=1234)
                     #continue
                 param = param_for_experiment(lns)
 
-                #X- Adding '' as a choice to the first hyperparameter might be unncessary as that's the same as the base kernel/experiment
                 choices = ['']
                 for child in experiment.derivatives_recursive(max_depth=1):
                     #Removing empty string from P0, as that's the same as the base experiemnt
@@ -238,6 +237,7 @@ cs = CS.ConfigurationSpace(seed=1234)
                     for clns in child.nestexperiments:
                         addedpragmas = '\n'.join(clns.newpragmas)
                         choice = addedpragmas
+                        print("CHOICE: ",choice)
 
                         if child.depth < max_depth:
                             cparam = param_for_experiment(clns)
@@ -245,13 +245,16 @@ cs = CS.ConfigurationSpace(seed=1234)
                             enabledif[cparam]=(param,choice)
                             c = new_cond()
                             conditions.append(f"{c} = CS.EqualsCondition({cparam}, {param}, {pyescape(choice)})")
-                            current_depth +=1
-                        else: #child.depth == max_depth:
+                        else: # child.depth == max_depth:
                             cparam = param_for_experiment(clns)
                             choice = f"{addedpragmas}"
                             enabledif[cparam]=(param,choice)
                             params.remove(cparam)
-                            current_depth +=1
+                        
+                        current_depth = child.depth
+                        print("CURRENT DEPTH REACHED: ",current_depth)
+                        #depth_checker.write(f"{current_depth}")
+                        #depth_checker.close()
                     
                     choices.append(choice)
                 #empty_string = pyescape("")
