@@ -267,33 +267,106 @@ def ytopt(parser, args):
             #X- Pass only the kernel file to ytoptgen
             current_depth, counter_num_experiments = ytoptgen.gen_ytopt_problem(filename=loopnestfiles,outdir=d, max_depth=args.maxdepth)
             print(f"YTopt problem generated")
+            print(f"Output directory: {d}")
             print(f"Depth reached/Max depth: {current_depth}/{args.maxdepth}")
             print(f"Total Experiments in search space: {counter_num_experiments}")
 
-            #if args.exec_ytopt:
-            ytopt_search_cmd = "/home/skale/soft/anaconda3/envs/mctree/bin/python -W ignore::FutureWarning -m ytopt.search.ambs --evaluator ray --problem problem.Problem --max-evals=10 --learner RF"
-            ytopt_exec_status = subprocess.run(ytopt_search_cmd, shell=True, cwd=str(d),  stdout=subprocess.PIPE) #stderr=subprocess.PIPE 
-            
-            #X- Add try-catch block for subprocess runs
-            if ytopt_exec_status.stderr:
-                print(ytopt_exec_status.stderr)
+            stats = open(str(d)+"/stats.txt","a")
+            stats.write("YTopt problem generated: \n")
+            stats.write(f"Output directory: {d}\n")
+            stats.write(f"Depth reached/Max depth: {current_depth}/{args.maxdepth}\n")
+            stats.write(f"Total Experiments in search space: {counter_num_experiments}\n")
+            stats.close()
 
-            pragma, elapsed_sec, objective_value = process_ytopt_results(str(d)+"/results.csv")
-            print("Pragma: ",pragma)
-            print("Elaspsed secs: ",elapsed_sec)
-            print("Objective Value: ",objective_value)
+            if False:
+                #if args.exec_ytopt:
+                ytopt_search_cmd = "/home/skale/soft/anaconda3/envs/mctree/bin/python -W ignore::FutureWarning -m ytopt.search.ambs --evaluator ray --problem problem.Problem --max-evals=10 --learner RF"
+                ytopt_exec_status = subprocess.run(ytopt_search_cmd, shell=True, cwd=str(d),  stdout=subprocess.PIPE) #stderr=subprocess.PIPE 
+                
+                #X- Add try-catch block for subprocess runs
+                if ytopt_exec_status.stderr:
+                    print(ytopt_exec_status.stderr)
 
-            results = open(str(d)+"/results.csv","a")
-            results.write("Top 1 result below: \n")
-            results.write("Pragma: "+pragma+"\n")
-            results.write("Elapsed secs: "+str(elapsed_sec)+"\n")
-            results.write("Objective Value: "+str(objective_value))
-            results.close()
+                pragma, elapsed_sec, objective_value = process_ytopt_results(str(d)+"/results.csv")
+                print("Pragma: ",pragma)
+                print("Elaspsed secs: ",elapsed_sec)
+                print("Objective Value: ",objective_value)
+
+                results = open(str(d)+"/results.csv","a")
+                results.write("Top 1 result below: \n")
+                results.write("Pragma: "+pragma+"\n")
+                results.write("Elapsed secs: "+str(elapsed_sec)+"\n")
+                results.write("Objective Value: "+str(objective_value))
+                results.close()
 
             print("Fin.")
 
 
+@subcommand("ytopt-run")
+def ytopt_run(parser, args):
+    if parser:
+        #parser.add_argument('--filename', nargs='+')
+        add_boolean_argument(parser, 'keep', default=True)
+        #parser.add_argument('--exec-arg', action='append')
+        parser.add_argument('--outdir', action='store')
+        parser.add_argument('--max-evals',action='store',default=10)
+        parser.add_argument('--learner', action='store',default='RF')
+        parser.add_argument('--evaluator', action='store',default='ray')
+        parser.add_argument('--problem', action='store',default='problem.Problem')
+        parser.add_argument('--acq-func', action='store',default='gp_hedge')
+        parser.add_argument('--kappa', action='store',type=float, default=1.96)
+        parser.add_argument('--eval-timeout-minutes', type=int,
+                            help="Max exec time in seconds; default is no timout")
+    
+    if args:
+        #os.environ["YTOPT_WORKERS_PER_NODE"] = "10"
+        python_path = f"/home/skale/soft/anaconda3/envs/mctree/bin/python -W ignore::FutureWarning"
+        ytopt_search_module = f"-m ytopt.search.ambs"
 
+        if args.eval_timeout_minutes == 0:
+            ytopt_search_cmd = f"{python_path} {ytopt_search_module} --evaluator {args.evaluator} --problem {args.problem} --max-evals={args.max_evals} --learner {args.learner} --acq-func {args.acq_func} --set-KAPPA {args.kappa}"
+        else:
+            ytopt_search_cmd = f"{python_path} {ytopt_search_module} --evaluator {args.evaluator} --problem {args.problem} --max-evals={args.max_evals} --learner {args.learner} --acq-func {args.acq_func} --set-KAPPA {args.kappa} --eval-timeout-minutes {args.eval_timeout_minutes}"
+        
+        print("YTOPT_SEARCH_CMD: ",ytopt_search_cmd)
+
+        ytopt_exec_status = subprocess.run(ytopt_search_cmd, shell=True, cwd=args.outdir,  stdout=subprocess.PIPE) #stderr=subprocess.PIPE 
+        #X- Add try-catch block for subprocess runs
+        if ytopt_exec_status.stderr:
+            print(ytopt_exec_status.stderr)
+        
+        """
+        pragma, elapsed_sec, objective_value = process_ytopt_results(args.outdir+"/results.csv")
+        print("Pragma: ",pragma)
+        print("Elaspsed secs: ",elapsed_sec)
+        print("Objective Value: ",objective_value)
+
+        results = open(args.outdir+f"/results.csv","a")
+        results.write("Top 1 result below: \n")
+        results.write("Pragma: "+pragma+"\n")
+        results.write("Elapsed secs: "+str(elapsed_sec)+"\n")
+        results.write("Objective Value: "+str(objective_value))
+        results.close()
+        """
+
+        print("Ytopt-Run. Fin.")
+
+@subcommand("ytopt-process-results")
+def ytopt_run(parser, args):
+    if parser:
+        parser.add_argument('--outdir', action='store')
+    if args:
+        pragma, elapsed_sec, objective_value = process_ytopt_results(args.outdir+"/results.csv")
+        print("Pragma: ",pragma)
+        print("Elaspsed secs: ",elapsed_sec)
+        print("Objective Value: ",objective_value)
+
+        results = open(args.outdir+f"/results_nsmallest.txt","w")
+        results.write("Top 1 result below: \n")
+        results.write("Pragma: "+pragma+"\n")
+        results.write("Elapsed secs: "+str(elapsed_sec)+"\n")
+        results.write("Objective Value: "+str(objective_value))
+        results.close()
 
 def main(argv: str) -> int:
     global transformers 
